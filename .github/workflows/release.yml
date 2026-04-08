@@ -4,6 +4,17 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        default: 'false'
+        type: boolean
 
 permissions:
   contents: write
@@ -15,6 +26,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -29,12 +41,78 @@ jobs:
 
       - name: Build release binaries
         env:
-          RELEASE_VERSION: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           bash build.sh
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           files: /tmp/gh-ost-release/gh-ost-binary-*
+          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
           generate_release_notes: true
+          body: |
+            ## gh-ost ${{ github.event.inputs.tag || github.ref_name }}
+
+            Online Schema Migration tool for MySQL — fork of [github/gh-ost](https://github.com/github/gh-ost).
+
+            ### What's New
+
+            #### Bug Fixes (from upstream)
+            - **Fix abort/retry interaction** ([#1655](https://github.com/github/gh-ost/pull/1655)) — Correctly handles retry after abort; warning errors now abort immediately instead of retrying unnecessarily.
+            - **Fix handling of warnings on DML batches** ([#1643](https://github.com/github/gh-ost/pull/1643)) — Properly handles warnings that occur in the middle of a DML batch.
+            - **Fix local tests permission errors** ([#1644](https://github.com/github/gh-ost/pull/1644)) — Makes `.gopath` writable to avoid toolchain `rm` permission errors in local tests.
+
+            #### Repository Improvements
+            - GitHub Actions CI workflow with Go 1.22 and 1.23 matrix
+            - Automated release workflow with binary packaging
+            - CodeQL security scanning
+            - golangci-lint integration
+            - Makefile for common development tasks
+            - Pre-commit hooks configuration
+            - Go package publishing workflow
+
+            ### Supported Platforms
+
+            | Platform | Architecture | Package |
+            |----------|-------------|---------|
+            | Linux    | amd64       | `gh-ost-binary-linux-amd64.tar.gz` |
+            | Linux    | arm64       | `gh-ost-binary-linux-arm64.tar.gz` |
+            | macOS    | amd64       | `gh-ost-binary-darwin-amd64.tar.gz` |
+            | macOS    | arm64 (M1+) | `gh-ost-binary-darwin-arm64.tar.gz` |
+
+            ### Installation
+
+            Download the appropriate binary for your platform from the assets below, then:
+
+            ```bash
+            tar xzf gh-ost-binary-*.tar.gz
+            sudo mv gh-ost /usr/local/bin/
+            gh-ost --version
+            ```
+
+            ### Use as a Go Module
+
+            ```go
+            import "github.com/github/gh-ost/go/base"
+            ```
+
+            ```bash
+            go get github.com/github/gh-ost@${{ github.event.inputs.tag || github.ref_name }}
+            ```
+
+            ### Quick Start
+
+            ```bash
+            gh-ost \
+              --user="migration_user" \
+              --password="secret" \
+              --host="replica.example.com" \
+              --database="mydb" \
+              --table="mytable" \
+              --alter="ADD COLUMN status TINYINT NOT NULL DEFAULT 0" \
+              --execute
+            ```
+
+            See the [documentation](https://github.com/github/gh-ost/tree/master/doc) for full usage details.

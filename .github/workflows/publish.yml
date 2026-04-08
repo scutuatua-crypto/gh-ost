@@ -1,0 +1,60 @@
+name: Publish Go Package
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate and Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Build
+        run: go build ./...
+
+      - name: Run unit tests
+        run: go test ./go/...
+
+  notify-pkg-go-dev:
+    name: Notify pkg.go.dev
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger pkg.go.dev indexing
+        env:
+          MODULE: github.com/github/gh-ost
+          VERSION: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          echo "Requesting indexing of ${MODULE}@${VERSION} on pkg.go.dev..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://sum.golang.org/lookup/${MODULE}@${VERSION}")
+          echo "sum.golang.org response: ${STATUS}"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://proxy.golang.org/${MODULE}/@v/${VERSION}.info")
+          echo "proxy.golang.org response: ${STATUS}"
+          echo "Package will be available at: https://pkg.go.dev/${MODULE}@${VERSION}"
