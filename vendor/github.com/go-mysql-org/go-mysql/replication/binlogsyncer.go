@@ -979,8 +979,9 @@ func (b *BinlogSyncer) newConnection(ctx context.Context) (*client.Conn, error) 
 func (b *BinlogSyncer) killConnection(conn *client.Conn, id uint32) {
 	cmd := fmt.Sprintf("KILL %d", id)
 	if _, err := conn.Execute(cmd); err != nil {
-		b.cfg.Logger.Errorf("kill connection %d error %v", id, err)
 		// Unknown thread id
+		if code := ErrorCode(err.Error()); code != ER_NO_SUCH_THREAD {
+			b.cfg.Logger.Errorf("kill connection %d error %v", id, err)
 		if code := ErrorCode(err.Error()); code != ER_NO_SUCH_THREAD {
 			b.cfg.Logger.Error(errors.Trace(err))
 		}
