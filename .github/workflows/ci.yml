@@ -33,6 +33,9 @@ jobs:
       with:
         go-version: ${{ matrix.go-version }}
 
+    - name: Install dependencies
+      run: sudo apt-get install -y netcat-openbsd
+
     - name: Configure MySQL
       run: |
         mysql -h 127.0.0.1 -uroot -proot -e "UPDATE performance_schema.setup_instruments SET ENABLED='YES', TIMED='YES' WHERE NAME='wait/lock/metadata/sql/mdl';"
