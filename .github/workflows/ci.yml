@@ -35,7 +35,6 @@ jobs:
 
     - name: Configure MySQL
       run: |
-        mysql -h 127.0.0.1 -uroot -proot -e "SET GLOBAL max_binlog_cache_size = 2147483648;"
         mysql -h 127.0.0.1 -uroot -proot -e "UPDATE performance_schema.setup_instruments SET ENABLED='YES', TIMED='YES' WHERE NAME='wait/lock/metadata/sql/mdl';"
         mysql -h 127.0.0.1 -uroot -proot -e "UPDATE performance_schema.setup_consumers SET ENABLED='YES' WHERE NAME='global_instrumentation';"
 
