@@ -26,27 +26,28 @@ jobs:
         options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Go ${{ matrix.go-version }}
-      uses: actions/setup-go@v5
-      with:
-        go-version: ${{ matrix.go-version }}
+      - name: Set up Go ${{ matrix.go-version }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
 
-    - name: Install dependencies
-      run: sudo apt-get install -y netcat-openbsd
+      - name: Install dependencies
+        run: sudo apt-get install -y netcat-openbsd
 
-    - name: Configure MySQL
-      run: |
-        mysql -h 127.0.0.1 -uroot -proot -e "UPDATE performance_schema.setup_instruments SET ENABLED='YES', TIMED='YES' WHERE NAME='wait/lock/metadata/sql/mdl';"
-        mysql -h 127.0.0.1 -uroot -proot -e "UPDATE performance_schema.setup_consumers SET ENABLED='YES' WHERE NAME='global_instrumentation';"
+      - name: Configure MySQL
+        run: |
+          mysql -h 127.0.0.1 -uroot -proot -e "UPDATE performance_schema.setup_instruments SET ENABLED='YES', TIMED='YES' WHERE NAME='wait/lock/metadata/sql/mdl';"
+          mysql -h 127.0.0.1 -uroot -proot -e "UPDATE performance_schema.setup_consumers SET ENABLED='YES' WHERE NAME='global_instrumentation';"
+          mysql -h 127.0.0.1 -uroot -proot -e "UPDATE performance_schema.setup_consumers SET ENABLED='YES' WHERE NAME='events_waits_current';"
 
-    - name: Build
-      run: script/cibuild
+      - name: Build
+        run: script/cibuild
 
-    - name: Upload gh-ost binary artifact
-      if: matrix.go-version == '1.23'
-      uses: actions/upload-artifact@v4
-      with:
-        name: gh-ost
-        path: bin/gh-ost
+      - name: Upload gh-ost binary artifact
+        if: matrix.go-version == '1.23'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gh-ost
+          path: bin/gh-ost
