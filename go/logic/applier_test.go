@@ -216,7 +216,7 @@ func TestRetryOnLockWaitTimeout(t *testing.T) {
 		err := retryOnLockWaitTimeout(func() error {
 			calls++
 			return nil
-		}, logger)
+		}, int64(5), logger)
 		require.NoError(t, err)
 		require.Equal(t, 1, calls)
 	})
@@ -229,7 +229,7 @@ func TestRetryOnLockWaitTimeout(t *testing.T) {
 				return lockWaitTimeoutErr
 			}
 			return nil
-		}, logger)
+		}, int64(5), logger)
 		require.NoError(t, err)
 		require.Equal(t, 3, calls)
 	})
@@ -239,7 +239,7 @@ func TestRetryOnLockWaitTimeout(t *testing.T) {
 		err := retryOnLockWaitTimeout(func() error {
 			calls++
 			return nonRetryableErr
-		}, logger)
+		}, int64(5), logger)
 		require.ErrorIs(t, err, nonRetryableErr)
 		require.Equal(t, 1, calls)
 	})
@@ -250,7 +250,7 @@ func TestRetryOnLockWaitTimeout(t *testing.T) {
 		err := retryOnLockWaitTimeout(func() error {
 			calls++
 			return genericErr
-		}, logger)
+		}, int64(5), logger)
 		require.ErrorIs(t, err, genericErr)
 		require.Equal(t, 1, calls)
 	})
@@ -260,7 +260,7 @@ func TestRetryOnLockWaitTimeout(t *testing.T) {
 		err := retryOnLockWaitTimeout(func() error {
 			calls++
 			return lockWaitTimeoutErr
-		}, logger)
+		}, int64(5), logger)
 		require.ErrorIs(t, err, lockWaitTimeoutErr)
 		require.Equal(t, 5, calls)
 	})
@@ -468,7 +468,7 @@ func (suite *ApplierTestSuite) TestValidateOrDropExistingTablesWithGhostTableExi
 
 	err = applier.ValidateOrDropExistingTables()
 	suite.Require().Error(err)
-	suite.Require().EqualError(err, "Table `_testing_gho` already exists. Panicking. Use --initially-drop-ghost-table to force dropping it, though I really prefer that you drop it or rename it away")
+	suite.Require().EqualError(err, "table `_testing_gho` already exists. Panicking. Use --initially-drop-ghost-table to force dropping it, though I really prefer that you drop it or rename it away")
 }
 
 func (suite *ApplierTestSuite) TestValidateOrDropExistingTablesWithGhostTableExistingAndInitiallyDropGhostTableSet() {
@@ -502,10 +502,86 @@ func (suite *ApplierTestSuite) TestValidateOrDropExistingTablesWithGhostTableExi
 
 	// Check that the ghost table was dropped
 	var tableName string
-	//nolint:execinquery
 	err = suite.db.QueryRow(fmt.Sprintf("SHOW TABLES IN test LIKE '_%s_gho'", testMysqlTableName)).Scan(&tableName)
 	suite.Require().Error(err)
 	suite.Require().Equal(gosql.ErrNoRows, err)
+}
+
+func (suite *ApplierTestSuite) TestAcquireMigrationLockSucceedsWhenFree() {
+	ctx := context.Background()
+
+	_, err := suite.db.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s (id INT, item_id INT);", getTestTableName()))
+	suite.Require().NoError(err)
+
+	connectionConfig, err := getTestConnectionConfig(ctx, suite.mysqlContainer)
+	suite.Require().NoError(err)
+
+	migrationContext := newTestMigrationContext()
+	migrationContext.ApplierConnectionConfig = connectionConfig
+	migrationContext.SetConnectionConfig("innodb")
+
+	applier := NewApplier(migrationContext)
+	defer applier.Teardown()
+
+	suite.Require().NoError(applier.InitDBConnections())
+	suite.Require().NoError(applier.AcquireMigrationLock(ctx))
+	suite.Require().NotNil(applier.migrationLockConn)
+	suite.Require().Equal(buildMigrationLockName(testMysqlDatabase, testMysqlTableName), applier.migrationLockName)
+}
+
+func (suite *ApplierTestSuite) TestAcquireMigrationLockFailsWhenHeld() {
+	ctx := context.Background()
+
+	_, err := suite.db.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s (id INT, item_id INT);", getTestTableName()))
+	suite.Require().NoError(err)
+
+	connectionConfig, err := getTestConnectionConfig(ctx, suite.mysqlContainer)
+	suite.Require().NoError(err)
+
+	migrationContextA := newTestMigrationContext()
+	migrationContextA.ApplierConnectionConfig = connectionConfig
+	migrationContextA.SetConnectionConfig("innodb")
+
+	applierA := NewApplier(migrationContextA)
+	defer applierA.Teardown()
+	suite.Require().NoError(applierA.InitDBConnections())
+	suite.Require().NoError(applierA.AcquireMigrationLock(ctx))
+
+	connectionConfigB, err := getTestConnectionConfig(ctx, suite.mysqlContainer)
+	suite.Require().NoError(err)
+
+	migrationContextB := newTestMigrationContext()
+	migrationContextB.ApplierConnectionConfig = connectionConfigB
+	migrationContextB.SetConnectionConfig("innodb")
+
+	applierB := NewApplier(migrationContextB)
+	defer applierB.Teardown()
+	suite.Require().NoError(applierB.InitDBConnections())
+
+	err = applierB.AcquireMigrationLock(ctx)
+	suite.Require().Error(err)
+	suite.Require().Contains(err.Error(), "already migrating")
+	suite.Require().Nil(applierB.migrationLockConn)
+}
+
+func TestBuildMigrationLockName(t *testing.T) {
+	t.Run("short name is returned verbatim", func(t *testing.T) {
+		name := buildMigrationLockName("mydb", "mytable")
+		require.Equal(t, "gh-ost::mydb.mytable", name)
+		require.LessOrEqual(t, len(name), 64)
+	})
+
+	t.Run("long name is hashed and within MySQL limit", func(t *testing.T) {
+		longDB := strings.Repeat("d", 40)
+		longTable := strings.Repeat("t", 40)
+		name := buildMigrationLockName(longDB, longTable)
+		require.LessOrEqual(t, len(name), 64)
+		require.True(t, strings.HasPrefix(name, "gh-ost::"))
+		// deterministic
+		require.Equal(t, name, buildMigrationLockName(longDB, longTable))
+		// distinct inputs produce distinct hashes
+		require.NotEqual(t, name, buildMigrationLockName(longDB, longTable+"x"))
+	})
 }
 
 func (suite *ApplierTestSuite) TestCreateGhostTable() {
@@ -540,14 +616,12 @@ func (suite *ApplierTestSuite) TestCreateGhostTable() {
 
 	// Check that the ghost table was created
 	var tableName string
-	//nolint:execinquery
 	err = suite.db.QueryRow("SHOW TABLES IN test LIKE '_testing_gho'").Scan(&tableName)
 	suite.Require().NoError(err)
 	suite.Require().Equal("_testing_gho", tableName)
 
 	// Check that the ghost table has the same columns as the original table
 	var createDDL string
-	//nolint:execinquery
 	err = suite.db.QueryRow(fmt.Sprintf("SHOW CREATE TABLE %s", getTestGhostTableName())).Scan(&tableName, &createDDL)
 	suite.Require().NoError(err)
 	suite.Require().Equal("CREATE TABLE `_testing_gho` (\n  `id` int DEFAULT NULL,\n  `item_id` int DEFAULT NULL\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci", createDDL)
@@ -1546,5 +1620,8 @@ func (suite *ApplierTestSuite) TestMultipleDMLEventsInBatch() {
 }
 
 func TestApplier(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping applier test suite in short mode")
+	}
 	suite.Run(t, new(ApplierTestSuite))
 }
