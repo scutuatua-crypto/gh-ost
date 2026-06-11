@@ -38,10 +38,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y netcat-openbsd mysql-client
 
+      - name: Wait for MySQL
+        run: |
+          echo "Waiting for MySQL to be ready..."
+          while ! mysqladmin ping -h"127.0.0.1" -uroot -proot --silent; do
+            sleep 1
+          done
+          echo "MySQL is ready!"
+
       - name: Configure MySQL
         run: |
+          # ตั้งค่าเฉพาะที่จำเป็นและไม่น่าจะกระทบ Test
           mysql -h 127.0.0.1 -uroot -proot -e "UPDATE performance_schema.setup_instruments SET ENABLED='YES', TIMED='YES' WHERE NAME='wait/lock/metadata/sql/mdl';"
           mysql -h 127.0.0.1 -uroot -proot -e "UPDATE performance_schema.setup_consumers SET ENABLED='YES' WHERE NAME='global_instrumentation';"
+          # บรรทัดนี้คือจุดที่อาจจะทำให้ Test พัง หาก Test มีการตรวจสอบ Lock หรือ Events 
+          # ถ้ายังพังอยู่ ให้ลองใส่เครื่องหมาย # หน้าบรรทัดล่างสุดนี้เพื่อปิดการใช้งานดูครับ
           mysql -h 127.0.0.1 -uroot -proot -e "UPDATE performance_schema.setup_consumers SET ENABLED='YES' WHERE NAME='events_waits_current';"
 
       - name: Build
