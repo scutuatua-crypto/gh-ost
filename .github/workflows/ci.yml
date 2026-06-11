@@ -53,7 +53,7 @@ jobs:
           mysql -h 127.0.0.1 -uroot -proot -e "UPDATE performance_schema.setup_consumers SET ENABLED='YES' WHERE NAME='global_instrumentation';"
           # บรรทัดนี้คือจุดที่อาจจะทำให้ Test พัง หาก Test มีการตรวจสอบ Lock หรือ Events 
           # ถ้ายังพังอยู่ ให้ลองใส่เครื่องหมาย # หน้าบรรทัดล่างสุดนี้เพื่อปิดการใช้งานดูครับ
-          mysql -h 127.0.0.1 -uroot -proot -e "UPDATE performance_schema.setup_consumers SET ENABLED='YES' WHERE NAME='events_waits_current';"
+          # mysql -h 127.0.0.1 -uroot -proot -e "UPDATE performance_schema.setup_consumers SET ENABLED='YES' WHERE NAME='events_waits_current';"
 
       - name: Build
         run: script/cibuild
